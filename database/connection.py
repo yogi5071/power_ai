@@ -1,23 +1,25 @@
-import mysql.connector
-from dotenv import load_dotenv
+"""MySQL connection factory for the repository layer."""
+
 import os
 
-# Membaca file .env
+import mysql.connector
+from dotenv import load_dotenv
+
+
 load_dotenv()
+
 
 def get_connection():
     try:
-        conn = mysql.connector.connect(
+        connection = mysql.connector.connect(
             host=os.getenv("DB_HOST"),
-            port=int(os.getenv("DB_PORT")),
+            port=int(os.getenv("DB_PORT", "3306")),
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
-            database=os.getenv("DB_NAME")
+            database=os.getenv("DB_NAME"),
         )
-
-        print("✅ Berhasil terhubung ke MySQL")
-        return conn
-
-    except mysql.connector.Error as err:
-        print(f"❌ Gagal terhubung: {err}")
+        print("MySQL connection established")
+        return connection
+    except mysql.connector.Error as error:
+        print(f"MySQL connection failed: {error}")
         return None

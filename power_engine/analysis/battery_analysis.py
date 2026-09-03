@@ -3,7 +3,7 @@ Battery Analysis
 Power AI Copilot
 """
 
-from models.analysis_result import AnalysisResult
+from power_engine.analysis.models.analysis_result import AnalysisResult
 
 from power_engine.rules.battery_rules import BatteryRules
 from power_engine.engine.health_score_engine import HealthScoreEngine
@@ -32,6 +32,10 @@ class BatteryAnalysis:
 
         result = AnalysisResult(site)
 
+        # =====================================================
+        # Battery Information
+        # =====================================================
+
         result.battery_age = site.battery_age
 
         result.technology = BatteryRules.technology_status(site)
@@ -40,16 +44,17 @@ class BatteryAnalysis:
 
         result.remaining_time = BatteryRules.remaining_time(site)
 
-        result.risk = BatteryRules.risk_level(site)
-
         result.recommendation = BatteryRules.recommendation(site)
 
         result.is_old = BatteryRules.is_old(site)
 
-        # ----------------------------------
+        # =====================================================
         # Health Score
-        # ----------------------------------
+        # =====================================================
 
-        result.health_score = HealthScoreEngine.calculate(result)
+        (
+            result.health_score,
+            result.health_reasons,
+        ) = HealthScoreEngine.calculate(site)
 
         return result

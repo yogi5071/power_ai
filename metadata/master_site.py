@@ -39,6 +39,25 @@ MASTER_SITE = TableMetadata(
             description="Site Name"
         ),
 
+        "class_site": FieldMetadata(
+            name="class_site",
+            label="Class Site",
+            column="class_site_update_s2",
+            data_type="string",
+            operators=["=", "LIKE", "IN"],
+            description="Latest site classification"
+        ),
+
+        "target_availability": FieldMetadata(
+            name="target_availability",
+            label="Target Availability",
+            column="target_availability",
+            data_type="number",
+            operators=["=", ">", "<", ">=", "<="],
+            unit="percent",
+            description="Availability target"
+        ),
+
         "kabupaten": FieldMetadata(
             name="kabupaten",
             label="Kabupaten",
@@ -194,6 +213,67 @@ MASTER_SITE = TableMetadata(
         ),
 
         # ==========================================================
+        # POWER / OUTAGE
+        # ==========================================================
+
+        "pemadaman_min": FieldMetadata(
+            name="pemadaman_min",
+            label="Pemadaman Minimum",
+            column="pemadaman_min",
+            data_type="number",
+            operators=[
+                "=",
+                ">",
+                "<",
+                ">=",
+                "<="
+            ],
+            unit="kali/bulan",
+            description=(
+                "Nilai minimum pemadaman "
+                "hasil analisis engineering"
+            )
+        ),
+
+        "pemadaman_avg": FieldMetadata(
+            name="pemadaman_avg",
+            label="Pemadaman Rata-rata",
+            column="pemadaman_avg",
+            data_type="number",
+            operators=[
+                "=",
+                ">",
+                "<",
+                ">=",
+                "<="
+            ],
+            unit="kali/bulan",
+            description=(
+                "Nilai rata-rata pemadaman "
+                "hasil analisis engineering"
+            )
+        ),
+
+        "pemadaman_max": FieldMetadata(
+            name="pemadaman_max",
+            label="Pemadaman Maksimum",
+            column="pemadaman_max",
+            data_type="number",
+            operators=[
+                "=",
+                ">",
+                "<",
+                ">=",
+                "<="
+            ],
+            unit="kali/bulan",
+            description=(
+                "Nilai maksimum pemadaman "
+                "hasil analisis engineering"
+            )
+        ),
+
+        # ==========================================================
         # RECTIFIER
         # ==========================================================
 
@@ -237,6 +317,21 @@ MASTER_SITE = TableMetadata(
                 "<="
             ],
             description="Total Rectifier Module"
+        ),
+
+        "jumlah_rectifier_obsolete": FieldMetadata(
+            name="jumlah_rectifier_obsolete",
+            label="Rectifier Obsolete",
+            column="jumlah_rectifier_obsolete",
+            data_type="number",
+            operators=[
+                "=",
+                ">",
+                "<",
+                ">=",
+                "<="
+            ],
+            description="Total obsolete rectifier"
         )
 
     }

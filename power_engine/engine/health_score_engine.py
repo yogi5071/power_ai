@@ -16,7 +16,8 @@ class HealthScoreEngine:
     - Evaluate battery age
     - Evaluate backup capability
     - Evaluate warranty status
-    - Produce score and explanation
+    - Produce health score
+    - Produce health score reasons
 
     This class MUST NOT:
     - Access database
@@ -63,26 +64,27 @@ class HealthScoreEngine:
                 )
 
         # =====================================================
-        # Backup Time
+        # Remaining Backup Time (Hours)
         # =====================================================
 
         backup_time = 0
 
         if site.total_load_rectifier > 0:
+
             backup_time = (
-                site.total_bank * 100
+                (site.total_bank or 0) * 100
             ) / site.total_load_rectifier
 
         if backup_time < 10:
             score -= 20
             reasons.append(
-                "Estimated backup time is below 10 minutes (-20)"
+                "Estimated remaining backup time is below 10 hours (-20)"
             )
 
         elif backup_time < 20:
             score -= 10
             reasons.append(
-                "Estimated backup time is below 20 minutes (-10)"
+                "Estimated remaining backup time is below 20 hours (-10)"
             )
 
         # =====================================================
@@ -92,13 +94,15 @@ class HealthScoreEngine:
         warranty = str(site.status_warranty_battery).upper()
 
         if "OUT" in warranty:
+
             score -= 10
+
             reasons.append(
                 "Battery warranty has expired (-10)"
             )
 
         # =====================================================
-        # Final Score
+        # Final Health Score
         # =====================================================
 
         score = max(score, 0)

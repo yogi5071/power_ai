@@ -47,10 +47,10 @@ class BatteryRules:
         battery = site.battery.strip().upper()
 
         if battery == "VRLA":
-            return "Obsolete"
+            return "VRLA"
 
         if battery == "LITHIUM":
-            return "Non Obsolete"
+            return "LITHIUM"
 
         return "Unknown"
 
