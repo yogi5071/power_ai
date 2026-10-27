@@ -1,0 +1,31 @@
+﻿# Secrets
+.env
+.env.*
+!.env.example
+
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Logs and temporary reports
+*.log
+status_project.txt
+laporan_*.txt
+
+# Temporary/manual test artifacts
+tests/ai/test_operational_intents_console_artifact.txt
+tests/ai/test_router_manual_console_script.txt
+
+# Backup files
+*.backup_contract_value
+# Old Git metadata backup
+.git_backup_old/

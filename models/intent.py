@@ -1,0 +1,15 @@
+from enum import Enum
+
+
+class Intent(Enum):
+    GREETING = "GREETING"
+    BATTERY = "BATTERY"
+    OUTAGE = "OUTAGE"
+    PLN = "PLN"
+    BATTERY_OUTAGE = "BATTERY_OUTAGE"
+    ALARM = "ALARM"
+    SITE = "SITE"
+    RECTIFIER = "RECTIFIER"
+    GENSET = "GENSET"
+    GENERAL_AI = "GENERAL_AI"
+    UNKNOWN = "UNKNOWN"
