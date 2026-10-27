@@ -29,3 +29,6 @@ tests/ai/test_router_manual_console_script.txt
 *.backup_contract_value
 # Old Git metadata backup
 .git_backup_old/
+
+# Empty temporary artifact
+git
