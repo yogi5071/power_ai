@@ -330,6 +330,12 @@ class EntityExtractor:
             )
 
             value = value.strip(" \t\r\n:=")
+            if subject == "no_contract" and re.fullmatch(
+                r"(?:UNTUK|DI)\s+SITE(?:\s+ID)?\s+[A-Z]{2,5}\d{2,6}[?.,;:]*",
+                value.strip(),
+                flags=re.IGNORECASE,
+            ):
+                return None
             return value or None
 
         return None
@@ -378,26 +384,32 @@ class EntityExtractor:
                 if site_reference:
                     explicit_site_id = site_reference.group(1).strip()
                     entity.site_id = explicit_site_id
-                    # An explicit Site ID takes precedence as the scope.
+
+                    # Site ID menentukan profil yang dicari.
                     entity.scope_type = "siteid"
                     entity.scope_value = explicit_site_id
 
-                    # Remove labels accidentally included in the candidate.
                     contract_candidate = re.sub(
                         r"^\s*(?:PLN\s+)?(?:SITE(?:\s+ID)?\s+)?",
                         "",
                         str(entity.contract_value or ""),
                         flags=re.IGNORECASE,
                     ).strip(" \t\r\n?.,:;")
+
                     contract_candidate = re.sub(
-                        r"\s+(?:UNTUK|DI)\s+SITE(?:\s+ID)?\s+"
-                        r"[A-Z]{2,5}\d{2,6}\s*[?.,;:]*$",
+                        r"^(?:UNTUK|DI)\s+SITE(?:\s+ID)?\s+[A-Z]{2,5}\d{2,6}\s*[?.,;:]*$|"
+                        r"\s+(?:UNTUK|DI)\s+SITE(?:\s+ID)?\s+[A-Z]{2,5}\d{2,6}\s*[?.,;:]*$",
                         "",
                         contract_candidate,
                         flags=re.IGNORECASE,
                     ).strip(" \t\r\n?.,:;")
 
-                    # Do not interpret the Site ID itself as a contract number.
+                    if re.fullmatch(
+                        rf"(?:UNTUK|DI)\s+SITE(?:\s+ID)?\s+{re.escape(explicit_site_id)}[?.,;:]*",
+                        contract_candidate,
+                        flags=re.IGNORECASE,
+                    ):
+                        contract_candidate = ""
                     if (
                         not contract_candidate
                         or contract_candidate.casefold() == explicit_site_id.casefold()
@@ -406,9 +418,8 @@ class EntityExtractor:
                     else:
                         entity.contract_value = contract_candidate
                 else:
-                    # A standalone contract number must not become a Site ID.
+                    # Kontrak yang menyerupai Site ID bukan filter lokasi.
                     entity.site_id = None
-
             return
 
 
