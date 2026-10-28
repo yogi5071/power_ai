@@ -688,14 +688,427 @@ class AIRouter:
         return "\n".join(lines)
 
     def _handle_contract(self, question, entity):
-        """Handle deterministic contract field and EOC queries."""
+        """Handle deterministic contract queries and site lookups."""
 
-        if not entity or not entity.contract_subject:
+        if not entity:
             return "Parameter kontrak tidak dapat ditemukan dari pertanyaan."
 
         field = entity.contract_subject
         scope_type = entity.scope_type
         scope_value = entity.scope_value
+
+        import re
+
+        explicit_site_id = None
+        if scope_type == "siteid" and scope_value:
+            site_pattern = (
+                rf"\bSITE(?:\s+ID)?\s+{re.escape(str(scope_value))}\b"
+            )
+            if re.search(site_pattern, question or '', re.IGNORECASE):
+                explicit_site_id = str(scope_value).strip()
+
+        # None means this question should continue through normal routing.
+        profile_fields = None
+        if explicit_site_id and field is None:
+            profile_fields = [
+                ("Nama Site", "site_name"),
+                ("Kategori", "kategori"),
+                ("Nomor Kontrak", "no_contract"),
+                ("Tanggal Akhir Kontrak (EOC)", "end_of_contract"),
+                ("Last Recurring", "last_recurring"),
+                ("Preventif Vandalisme", "preventif_vandalisme"),
+                ("Kecamatan", "kecamatan"),
+                ("Kabupaten/Kota", "kabupaten"),
+                ("NOP", "nop_name"),
+                ("Cluster", "cluster"),
+            ]
+        elif explicit_site_id and field == "no_contract" and not entity.contract_value:
+            profile_fields = [("Nomor Kontrak", "no_contract")]
+        elif explicit_site_id and field == "eoc" and not entity.eoc_operator:
+            profile_fields = [("Tanggal Akhir Kontrak (EOC)", "end_of_contract")]
+
+        if profile_fields is not None:
+            try:
+                profile = self.contract_service.get_site_profile(
+                    explicit_site_id
+                )
+            except Exception as exc:
+                return f"Query kontrak site gagal: {exc}"
+
+            if not profile:
+                return f"Data kontrak PLN tidak ditemukan untuk site {explicit_site_id}."
+
+            lines = ["Data Kontrak PLN", ""]
+            lines.append(f"Site ID : {profile.get('siteid') or explicit_site_id}")
+            for label, key in profile_fields:
+                value = profile.get(key)
+                if value is None or not str(value).strip() or str(value).strip() == "0000-00-00":
+                    value = "Tidak tersedia"
+                lines.append(f"{label} : {value}")
+
+            return "\n".join(lines)
+
+        # CONTRACT URGENT ACTION LIST
+        # List contracts reaching EOC within 90 days, ordered by nearest EOC.
+        question_lower = str(question or "").lower()
+
+        list_intent = any(
+            term in question_lower
+            for term in (
+                "daftar",
+                "list",
+                "tampilkan",
+                "sebutkan",
+                "mana saja",
+            )
+        )
+
+        urgent_intent = any(
+            term in question_lower
+            for term in (
+                "urgent",
+                "mendesak",
+                "segera berakhir",
+                "jatuh tempo",
+                "perlu diperpanjang",
+                "90 hari",
+            )
+        )
+
+        if list_intent and urgent_intent:
+            from datetime import date, timedelta
+
+            today = date.today()
+            deadline = today + timedelta(days=90)
+
+            try:
+                result = self.contract_service.query_eoc(
+                    operator="between",
+                    date_value=today.isoformat(),
+                    date_value_to=deadline.isoformat(),
+                    scope_field=scope_type,
+                    scope_value=scope_value,
+                    limit=20,
+                )
+            except Exception as exc:
+                return f"Query daftar kontrak URGENT gagal: {exc}"
+
+            rows = result.get("rows") or []
+            total_count = int(
+                result.get("total_count", len(rows)) or 0
+            )
+            sampling_count = int(
+                result.get("sampling_count", len(rows)) or 0
+            )
+
+            scope_label = (
+                f"{scope_type}: {scope_value}"
+                if scope_type and scope_value
+                else "Seluruh data contract"
+            )
+
+            lines = [
+                "Daftar Kontrak URGENT",
+                "",
+                f"Tanggal evaluasi : {today.isoformat()}",
+                f"Rentang EOC : {today.isoformat()} s/d {deadline.isoformat()}",
+                f"Scope : {scope_label}",
+                f"Total : {total_count} site",
+                f"Sampling : {sampling_count} site",
+            ]
+
+            if rows:
+                lines.extend([
+                    "",
+                    "Daftar tindakan, diurutkan dari EOC terdekat:",
+                ])
+
+                for row in rows:
+                    siteid = row.get("siteid") or "-"
+                    site_name = row.get("site_name") or "-"
+                    raw_eoc = row.get("end_of_contract")
+
+                    try:
+                        eoc_date = date.fromisoformat(str(raw_eoc)[:10])
+                        days_left = (eoc_date - today).days
+                        eoc_label = eoc_date.isoformat()
+
+                        if days_left == 0:
+                            remaining = "jatuh tempo hari ini"
+                        else:
+                            remaining = f"{days_left} hari lagi"
+                    except (TypeError, ValueError):
+                        eoc_label = str(raw_eoc or "-")
+                        remaining = "sisa hari tidak dapat dihitung"
+
+                    lines.append(
+                        f"- {siteid} | {site_name} | "
+                        f"EOC: {eoc_label} | {remaining}"
+                    )
+            else:
+                lines.extend([
+                    "",
+                    "Tidak ada kontrak dengan EOC dalam 90 hari ke depan.",
+                ])
+
+            if total_count > sampling_count:
+                lines.extend([
+                    "",
+                    f"Menampilkan {sampling_count} dari {total_count} site.",
+                    "Daftar ini merupakan sampel; masih ada site lain yang cocok.",
+                ])
+
+            lines.extend([
+                "",
+                "Prioritas URGENT dihitung berdasarkan EOC hari ini "
+                "sampai 90 hari ke depan.",
+            ])
+
+            return "\n".join(lines)
+
+        # CONTRACT LIST BY AREA
+        # List contracts for an explicitly identified district/sub-district.
+        if (
+            field is None
+            and scope_type in {"kabupaten", "kecamatan"}
+            and scope_value
+            and not any(
+                term in str(question or "").lower()
+                for term in (
+                    "prioritas eoc",
+                    "prioritas kontrak",
+                    "kontrak prioritas",
+                    "ringkasan eoc",
+                    "ringkasan kontrak",
+                    "status kontrak",
+                    "kontrak expired",
+                    "kontrak kadaluarsa",
+                    "kontrak kedaluwarsa",
+                    "kontrak sudah berakhir",
+                    "kontrak yang sudah berakhir",
+                    "segera berakhir",
+                    "akan segera berakhir",
+                    "mendekati eoc",
+                    "kontrak jatuh tempo",
+                    "jatuh tempo kontrak",
+                    "kontrak paling mendesak",
+                    "kontrak mendesak",
+                    "perlu diperpanjang",
+                    "perpanjangan kontrak",
+                )
+            )
+        ):
+            try:
+                result = self.contract_service.list_sites(
+                    scope_field=scope_type,
+                    scope_value=scope_value,
+                    limit=20,
+                )
+            except Exception as exc:
+                return f"Query daftar kontrak gagal: {exc}"
+
+            rows = result.get("rows") or []
+            total_count = int(
+                result.get("total_count", result.get("count", len(rows))) or 0
+            )
+            sampling_count = int(
+                result.get("sampling_count", len(rows)) or 0
+            )
+
+            scope_labels = {
+                "kabupaten": "Kabupaten",
+                "kecamatan": "Kecamatan",
+            }
+            scope_label = (
+                f"{scope_labels.get(scope_type, scope_type.title())} "
+                f"{scope_value}"
+            )
+
+            if not rows:
+                return (
+                    "Daftar Kontrak PLN\n\n"
+                    f"Scope : {scope_label}\n"
+                    f"Total : {total_count} site\n"
+                    "Tidak ada data kontrak yang cocok."
+                )
+
+            lines = [
+                "Daftar Kontrak PLN",
+                "",
+                f"Scope : {scope_label}",
+                f"Total : {total_count} site",
+                f"Sampling : {sampling_count} site",
+                "",
+            ]
+
+            for index, row in enumerate(rows, start=1):
+                siteid = row.get("siteid") or "-"
+                site_name = row.get("site_name") or "-"
+                kategori = row.get("kategori") or "Tidak tersedia"
+                no_contract = row.get("no_contract") or "Tidak tersedia"
+                eoc = row.get("end_of_contract") or "Tidak tersedia"
+
+                lines.extend([
+                    f"{index}. {siteid} | {site_name}",
+                    f"   Kategori : {kategori}",
+                    f"   Nomor Kontrak : {no_contract}",
+                    f"   EOC : {eoc}",
+                    "",
+                ])
+
+            if total_count > sampling_count:
+                lines.append(
+                    f"Menampilkan {sampling_count} dari {total_count} site."
+                )
+
+            return "\n".join(lines)
+
+        # CONTRACT EOC PRIORITY SUMMARY
+        # Calculate operational priority from the actual EOC date.
+        question_lower = str(question or "").lower()
+        priority_terms = (
+            "prioritas eoc",
+            "prioritas kontrak",
+            "kontrak prioritas",
+            "ringkasan eoc",
+            "ringkasan kontrak",
+            "status kontrak",
+            "kontrak expired",
+            "kontrak kadaluarsa",
+            "kontrak kedaluwarsa",
+            "kontrak sudah berakhir",
+            "kontrak yang sudah berakhir",
+            "segera berakhir",
+            "akan segera berakhir",
+            "mendekati eoc",
+            "kontrak jatuh tempo",
+            "jatuh tempo kontrak",
+            "kontrak paling mendesak",
+            "kontrak mendesak",
+            "perlu diperpanjang",
+            "perpanjangan kontrak",
+        )
+
+        if any(term in question_lower for term in priority_terms):
+            from datetime import date, timedelta
+
+            today = date.today()
+            urgent_end = today + timedelta(days=90)
+            upcoming_start = urgent_end + timedelta(days=1)
+            upcoming_end = today + timedelta(days=365)
+
+            bucket_specs = [
+                ("EXPIRED", "<", today.isoformat(), None, 3),
+                (
+                    "URGENT",
+                    "between",
+                    today.isoformat(),
+                    urgent_end.isoformat(),
+                    5,
+                ),
+                (
+                    "UPCOMING",
+                    "between",
+                    upcoming_start.isoformat(),
+                    upcoming_end.isoformat(),
+                    5,
+                ),
+                (
+                    "ACTIVE",
+                    ">",
+                    upcoming_end.isoformat(),
+                    None,
+                    1,
+                ),
+            ]
+
+            results = {}
+            try:
+                for name, operator, date_from, date_to, limit in bucket_specs:
+                    results[name] = self.contract_service.query_eoc(
+                        operator=operator,
+                        date_value=date_from,
+                        date_value_to=date_to,
+                        scope_field=scope_type,
+                        scope_value=scope_value,
+                        limit=limit,
+                    )
+            except Exception as exc:
+                return f"Query prioritas EOC gagal: {exc}"
+
+            counts = {
+                name: int(
+                    result.get("total_count", 0) or 0
+                )
+                for name, result in results.items()
+            }
+
+            scope_label = (
+                f"{scope_type}: {scope_value}"
+                if scope_type and scope_value
+                else "Seluruh data contract"
+            )
+
+            lines = [
+                "Prioritas EOC Kontrak PLN",
+                "",
+                f"Tanggal evaluasi : {today.isoformat()}",
+                f"Scope : {scope_label}",
+                "",
+                "Ringkasan status:",
+                f"- EXPIRED (sebelum {today.isoformat()}): "
+                f"{counts['EXPIRED']} site",
+                f"- URGENT (0-90 hari, sampai {urgent_end.isoformat()}): "
+                f"{counts['URGENT']} site",
+                f"- UPCOMING (91-365 hari, "
+                f"{upcoming_start.isoformat()} s/d {upcoming_end.isoformat()}): "
+                f"{counts['UPCOMING']} site",
+                f"- ACTIVE (setelah {upcoming_end.isoformat()}): "
+                f"{counts['ACTIVE']} site",
+            ]
+
+            expired_rows = results["EXPIRED"].get("rows") or []
+            if expired_rows:
+                lines.extend([
+                    "",
+                    "Contoh kontrak EXPIRED (maks. 3, EOC terlama):",
+                ])
+                for row in expired_rows[:3]:
+                    lines.append(
+                        f"- {row.get('siteid') or '-'} | "
+                        f"{row.get('site_name') or '-'} | "
+                        f"EOC: {row.get('end_of_contract') or '-'}"
+                    )
+
+            upcoming_rows = []
+            for name in ("URGENT", "UPCOMING"):
+                for row in results[name].get("rows") or []:
+                    eoc = str(row.get("end_of_contract") or "")
+                    upcoming_rows.append((eoc, name, row))
+
+            upcoming_rows.sort(key=lambda item: (item[0], item[2].get("siteid") or ""))
+
+            lines.extend(["", "Kontrak terdekat jatuh tempo (maks. 5):"])
+            if upcoming_rows:
+                for eoc, name, row in upcoming_rows[:5]:
+                    lines.append(
+                        f"- [{name}] {row.get('siteid') or '-'} | "
+                        f"{row.get('site_name') or '-'} | EOC: {eoc or '-'}"
+                    )
+            else:
+                lines.append(
+                    "Tidak ada kontrak dengan EOC dalam 365 hari ke depan."
+                )
+
+            lines.extend([
+                "",
+                "Catatan: kategori dihitung dari EOC valid; "
+                "tanggal kosong/tidak valid tidak masuk kategori.",
+            ])
+            return "\n".join(lines)
+
+        if not field:
+            return "Parameter kontrak tidak dapat ditentukan dari pertanyaan."
 
         # CONTRACT FIELD QUERY
         if field != "eoc":

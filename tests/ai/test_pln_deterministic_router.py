@@ -39,8 +39,27 @@ class FakeRegistry:
 
 
 def router():
-    instance = AIRouter()
+    """Build an isolated router with in-memory conversation context."""
+    instance = object.__new__(AIRouter)
     instance.registry = FakeRegistry()
+
+    class FakeConversation:
+        def __init__(self):
+            self.contexts = {}
+
+        def get_context(self, user_id):
+            return self.contexts.get(user_id)
+
+        def set_context(self, user_id, **kwargs):
+            context = self.contexts.setdefault(user_id, {})
+            context.update(kwargs)
+
+    instance.conversation = FakeConversation()
+    instance.ai = SimpleNamespace(
+        generate=lambda *_args, **_kwargs: "",
+        chat=lambda *_args, **_kwargs: "",
+    )
+    instance._current_user_id = "pytest"
     return instance
 
 

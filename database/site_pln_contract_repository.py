@@ -148,6 +148,42 @@ class SitePLNContractRepository(BaseRepository):
     # COUNT SITES
     # ==========================================================
 
+    def get_site_profile(self, siteid):
+        """Return one contract profile by exact Site ID."""
+        siteid = str(siteid or "").strip()
+        if not siteid:
+            raise ValueError("Contract siteid cannot be empty")
+
+        cursor = self.get_cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    c.siteid,
+                    c.site_name,
+                    c.kategori,
+                    c.no_contract,
+                    c.end_of_contract,
+                    c.last_recurring,
+                    c.preventif_vandalisme,
+                    ms.kecamatan,
+                    ms.kabupaten,
+                    ms.nop_name,
+                    ms.cluster
+                FROM site_pln_contract c
+                LEFT JOIN master_site ms
+                    ON ms.siteid = c.siteid
+                WHERE UPPER(TRIM(c.siteid)) = UPPER(TRIM(%s))
+                LIMIT 1
+                """
+                ,
+                (siteid,),
+            )
+            return cursor.fetchone()
+        finally:
+            cursor.close()
+
+
     def count_sites(
         self,
         scope_field=None,

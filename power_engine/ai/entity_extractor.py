@@ -312,6 +312,16 @@ class EntityExtractor:
 
             value = text[match.end():]
 
+            # Buang label domain PLN jika ikut terbaca
+            # sebagai awalan nilai nomor kontrak.
+            if subject == "no_contract":
+                value = re.sub(
+                    r"^\s*PLN\s+(?=\S)",
+                    "",
+                    value,
+                    count=1,
+                )
+
             # Buang scope lokasi di bagian akhir pertanyaan.
             value = re.sub(
                 r"\s+\bDI\s+(?:(?:KABUPATEN|KOTA|KECAMATAN)\s+)?[A-Z][A-Z\s-]*$",
@@ -360,12 +370,47 @@ class EntityExtractor:
                 entity.contract_subject
             )
 
-            # A contract number can match SITE_PATTERN.
-            # Contract semantics take precedence only here.
             if entity.contract_subject == "no_contract":
-                entity.site_id = None
+                site_reference = re.search(
+                    r"\bSITE(?:\s+ID)?\s+([A-Z]{2,5}\d{2,6})\b",
+                    text,
+                )
+                if site_reference:
+                    explicit_site_id = site_reference.group(1).strip()
+                    entity.site_id = explicit_site_id
+                    # An explicit Site ID takes precedence as the scope.
+                    entity.scope_type = "siteid"
+                    entity.scope_value = explicit_site_id
+
+                    # Remove labels accidentally included in the candidate.
+                    contract_candidate = re.sub(
+                        r"^\s*(?:PLN\s+)?(?:SITE(?:\s+ID)?\s+)?",
+                        "",
+                        str(entity.contract_value or ""),
+                        flags=re.IGNORECASE,
+                    ).strip(" \t\r\n?.,:;")
+                    contract_candidate = re.sub(
+                        r"\s+(?:UNTUK|DI)\s+SITE(?:\s+ID)?\s+"
+                        r"[A-Z]{2,5}\d{2,6}\s*[?.,;:]*$",
+                        "",
+                        contract_candidate,
+                        flags=re.IGNORECASE,
+                    ).strip(" \t\r\n?.,:;")
+
+                    # Do not interpret the Site ID itself as a contract number.
+                    if (
+                        not contract_candidate
+                        or contract_candidate.casefold() == explicit_site_id.casefold()
+                    ):
+                        entity.contract_value = None
+                    else:
+                        entity.contract_value = contract_candidate
+                else:
+                    # A standalone contract number must not become a Site ID.
+                    entity.site_id = None
 
             return
+
 
         # EOC uses operator + date semantics.
         operator = (
@@ -449,7 +494,7 @@ class EntityExtractor:
             and entity.contract_value
         ):
             scope_message = re.sub(
-                r"\b(?:NO\s+CONTRACT|NO\s+KONTRAK|NOMOR\s+CONTRACT|NOMOR\s+KONTRAK)\s*[:=]?\s*"
+                r"\b(?:NO\s+CONTRACT|NO\s+KONTRAK|NOMOR\s+CONTRACT|NOMOR\s+KONTRAK)\s*[:=]?\s*(?:PLN\s+)?"
                 + re.escape(entity.contract_value)
                 + r"\b",
                 "",
